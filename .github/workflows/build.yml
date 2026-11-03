@@ -47,7 +47,8 @@ jobs:
           D3=$(ls "$HOME"/djgpp/bin/*-dxe3gen 2>/dev/null | head -n1)
           [ -n "$D3" ] || D3=$(find "$HOME/djgpp" -name '*dxe3gen*' -type f | head -n1)
           echo "dxe3gen found: $D3"
-          ln -sf "$D3" "$HOME/djgpp/bin/dxe3gen"
+          # dxe3gen also shells out to sibling tools (dxe3res), so put their dir on PATH
+          echo "$(dirname "$D3")" >> "$GITHUB_PATH"
           echo "$HOME/djgpp/bin" >> "$GITHUB_PATH"
           # Open Watcom v2 -> glide2x.ovl
           curl -fsSL -o watcom.tar.xz \
