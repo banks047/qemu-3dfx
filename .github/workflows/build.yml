@@ -43,6 +43,11 @@ jobs:
           curl -fsSL -o djgpp.tar.bz2 \
             https://github.com/andrewwutw/build-djgpp/releases/download/v3.4/djgpp-linux64-gcc1220.tar.bz2
           tar -C "$HOME" -xf djgpp.tar.bz2
+          # The Makefile calls bare `dxe3gen`; the tarball only ships prefixed names
+          D3=$(ls "$HOME"/djgpp/bin/*-dxe3gen 2>/dev/null | head -n1)
+          [ -n "$D3" ] || D3=$(find "$HOME/djgpp" -name '*dxe3gen*' -type f | head -n1)
+          echo "dxe3gen found: $D3"
+          ln -sf "$D3" "$HOME/djgpp/bin/dxe3gen"
           echo "$HOME/djgpp/bin" >> "$GITHUB_PATH"
           # Open Watcom v2 -> glide2x.ovl
           curl -fsSL -o watcom.tar.xz \
