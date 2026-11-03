@@ -48,7 +48,12 @@ jobs:
           [ -n "$D3" ] || D3=$(find "$HOME/djgpp" -name '*dxe3gen*' -type f | head -n1)
           echo "dxe3gen found: $D3"
           # dxe3gen also shells out to sibling tools (dxe3res), so put their dir on PATH
-          echo "$(dirname "$D3")" >> "$GITHUB_PATH"
+          # Expose only the dxe* tools: the full dir also holds a DJGPP objdump that would
+          # shadow the mingw one and break exports-check
+          mkdir -p "$HOME/dxetools"
+          for t in "$(dirname "$D3")"/dxe*; do ln -sf "$t" "$HOME/dxetools/$(basename "$t")"; done
+          ls -l "$HOME/dxetools"
+          echo "$HOME/dxetools" >> "$GITHUB_PATH"
           echo "$HOME/djgpp/bin" >> "$GITHUB_PATH"
           # Open Watcom v2 -> glide2x.ovl
           curl -fsSL -o watcom.tar.xz \
