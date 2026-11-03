@@ -29,7 +29,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
             gcc-mingw-w64-i686 binutils-mingw-w64-i686 mingw-w64-tools \
-            xxd perl make zip
+            xxd perl make zip libfl2
           # win32 thread model: avoids a libwinpthread/libgcc_s runtime dependency
           sudo update-alternatives --set i686-w64-mingw32-gcc /usr/bin/i686-w64-mingw32-gcc-win32
           # Makefiles call bare `objdump` on PE files; point it at the mingw one
