@@ -192,7 +192,10 @@ jobs:
       - name: Fetch QEMU and apply qemu-3dfx
         run: |
           wget -q "https://download.qemu.org/qemu-${QEMU_VERSION}.tar.xz"
-          tar xf "qemu-${QEMU_VERSION}.tar.xz"
+          # MSYS tar cannot create the symlinks under roms/ and tests/lcitool (unused by the
+          # build) and exits non-zero; skip roms and verify the tree really extracted instead
+          tar xf "qemu-${QEMU_VERSION}.tar.xz" --exclude="qemu-${QEMU_VERSION}/roms" || true
+          test -f "qemu-${QEMU_VERSION}/configure" && test -f "qemu-${QEMU_VERSION}/meson.build"
           cd "qemu-${QEMU_VERSION}"
           rsync -r ../qemu-0/hw/3dfx ../qemu-1/hw/mesa ./hw/
           patch -p0 -i "../${QEMU_PATCH}"
