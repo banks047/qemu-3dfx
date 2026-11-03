@@ -1,0 +1,234 @@
+name: build
+
+on:
+  push:
+    branches: [master, main]
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch:
+
+env:
+  QEMU_VERSION: 9.2.2
+  QEMU_PATCH: 00-qemu92x-mesa-glide.patch
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # Guest wrappers (Win32 DLLs). Cross-compiled with mingw-w64 on Linux.
+  # The same DLLs run on Win9x and Win2k/XP; only the driver files differ, so we
+  # build once and package two zips.
+  # ---------------------------------------------------------------------------
+  wrappers:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # Makefiles stamp `git rev-parse --short HEAD`
+
+      - name: Install cross toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            gcc-mingw-w64-i686 binutils-mingw-w64-i686 mingw-w64-tools \
+            xxd perl make zip
+          # win32 thread model: avoids a libwinpthread/libgcc_s runtime dependency
+          sudo update-alternatives --set i686-w64-mingw32-gcc /usr/bin/i686-w64-mingw32-gcc-win32
+          # Makefiles call bare `objdump` on PE files; point it at the mingw one
+          mkdir -p "$HOME/shim"
+          ln -sf "$(command -v i686-w64-mingw32-objdump)" "$HOME/shim/objdump"
+          echo "$HOME/shim" >> "$GITHUB_PATH"
+
+      - name: Install DOS toolchains (DJGPP + Open Watcom)
+        run: |
+          # DJGPP cross compiler -> glide2x.dxe / glide3x.dxe
+          curl -fsSL -o djgpp.tar.bz2 \
+            https://github.com/andrewwutw/build-djgpp/releases/download/v3.4/djgpp-linux64-gcc1220.tar.bz2
+          tar -C "$HOME" -xf djgpp.tar.bz2
+          echo "$HOME/djgpp/bin" >> "$GITHUB_PATH"
+          # Open Watcom v2 -> glide2x.ovl
+          curl -fsSL -o watcom.tar.xz \
+            https://github.com/open-watcom/open-watcom-v2/releases/download/Current-build/ow-snapshot.tar.xz
+          mkdir -p "$HOME/watcom"
+          tar -C "$HOME/watcom" -xf watcom.tar.xz
+          echo "WATCOM=$HOME/watcom" >> "$GITHUB_ENV"
+          echo "INCLUDE=$HOME/watcom/h" >> "$GITHUB_ENV"
+          echo "$HOME/watcom/binl64" >> "$GITHUB_PATH"
+
+      - name: Build 3dfx (Glide) wrappers
+        working-directory: wrappers/3dfx
+        run: |
+          mkdir -p build && cd build
+          bash ../../../scripts/conf_wrapper
+          make
+          make clean
+          ls -l
+
+      - name: Build Mesa GL wrapper
+        working-directory: wrappers/mesa
+        run: |
+          mkdir -p build && cd build
+          bash ../../../scripts/conf_wrapper
+          make
+          make clean
+          ls -l
+
+      - name: Verify DOS wrappers were really built
+        run: |
+          # conf_wrapper silently skips DXE/OVL if a toolchain is not found
+          cd wrappers/3dfx/build
+          for f in glide2x.ovl glide2x.dxe glide3x.dxe libfxgl2.a libfxgl3.a fxmemmap.vxd fxptl.sys; do
+            [ -s "$f" ] || { echo "::error::missing $f"; exit 1; }
+          done
+
+      - name: Verify Win9x loadability (static check)
+        run: |
+          python3 - <<'PY'
+          import glob, struct, subprocess, sys
+          files = glob.glob("wrappers/3dfx/build/glide*.dll") + ["wrappers/mesa/build/opengl32.dll",
+                                                                "wrappers/3dfx/build/instdrv.exe"]
+          ok_dlls = {"kernel32.dll", "user32.dll", "gdi32.dll", "advapi32.dll", "winmm.dll",
+                     "msvcrt.dll", "opengl32.dll", "shell32.dll"}
+          # kernel32/user32/advapi32 exports that do not exist on Win98 (NT-only or XP+)
+          deny = {"GetModuleHandleExA", "GetModuleHandleExW", "GetSystemTimes", "IsWow64Process",
+                  "GetNativeSystemInfo", "GetTickCount64", "AddVectoredExceptionHandler",
+                  "RemoveVectoredExceptionHandler", "GetLogicalProcessorInformation",
+                  "HeapSetInformation", "SetDllDirectoryA", "SetDllDirectoryW", "GetProcessId",
+                  "InitializeSListHead", "InterlockedPushEntrySList", "InterlockedPopEntrySList",
+                  "RegGetValueA", "RegGetValueW", "CreateToolhelp32Snapshot_NT",
+                  "FlsAlloc", "FlsGetValue", "FlsSetValue", "FlsFree", "EncodePointer",
+                  "DecodePointer", "InitOnceExecuteOnce", "AcquireSRWLockExclusive",
+                  "WakeAllConditionVariable", "GetCurrentProcessorNumber",
+                  "SetThreadStackGuarantee", "GetLargePageMinimum"}
+          bad = False
+          for f in files:
+              d = open(f, "rb").read()
+              pe = struct.unpack_from("<I", d, 0x3c)[0]
+              opt = pe + 24
+              osv = struct.unpack_from("<HH", d, opt + 40)
+              ssv = struct.unpack_from("<HH", d, opt + 48)
+              out = subprocess.run(["i686-w64-mingw32-objdump", "-p", f],
+                                   capture_output=True, text=True, check=True).stdout
+              dll, imps = None, {}
+              for line in out.splitlines():
+                  line = line.strip()
+                  if line.startswith("DLL Name:"):
+                      dll = line.split(":", 1)[1].strip().lower(); imps[dll] = []
+                  elif dll and len(line.split()) >= 3 and all(
+                          c in "0123456789abcdefABCDEF" for c in line.split()[0] + line.split()[1]):
+                      imps[dll].append(line.split()[-1])
+                  elif line.startswith("The Export Tables") or line.startswith("Export Address"):
+                      dll = None
+              print(f"{f}: OS {osv} subsystem {ssv} imports {sorted(imps)}")
+              # Win9x refuses images that claim a newer OS/subsystem than 4.x
+              if osv[0] > 4 or ssv[0] > 4:
+                  print(f"::error::{f} requires OS/subsystem >= 5 (not loadable on Win9x)"); bad = True
+              for name, syms in imps.items():
+                  if name not in ok_dlls:
+                      print(f"::error::{f} imports {name} (not guaranteed on Win98)"); bad = True
+                  for s in syms:
+                      if s in deny:
+                          print(f"::error::{f} imports {name}!{s} (missing on Win98)"); bad = True
+          sys.exit(1 if bad else 0)
+          PY
+
+      - name: Package win98 / winxp / dos
+        run: |
+          G=wrappers/3dfx/build
+          M=wrappers/mesa/build
+          mkdir -p dist/win98 dist/winxp dist/dos
+          for d in win98 winxp; do
+            cp $G/glide.dll $G/glide2x.dll $G/glide3x.dll $M/opengl32.dll dist/$d/
+          done
+          cp $G/fxmemmap.vxd $G/glide2x.ovl dist/win98/
+          cp $G/fxptl.sys $G/instdrv.exe dist/winxp/
+          cp $G/glide2x.ovl $G/glide2x.dxe $G/glide3x.dxe $G/libfxgl2.a $G/libfxgl3.a dist/dos/
+          for d in win98 winxp dos; do
+            (cd dist/$d && zip -r ../qemu-3dfx-guest-$d.zip .)
+          done
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: guest-wrappers
+          path: dist/*.zip
+          if-no-files-found: error
+
+  # ---------------------------------------------------------------------------
+  # QEMU host binary - Windows (MSYS2 / MinGW-w64, as the upstream README does)
+  # ---------------------------------------------------------------------------
+  qemu-windows:
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: msys2 {0}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: msys2/setup-msys2@v2
+        with:
+          msystem: MINGW64
+          update: true
+          install: >-
+            base-devel git rsync patch wget xz tar
+            mingw-w64-x86_64-toolchain
+            mingw-w64-x86_64-ninja
+            mingw-w64-x86_64-python
+            mingw-w64-x86_64-pkgconf
+            mingw-w64-x86_64-glib2
+            mingw-w64-x86_64-pixman
+            mingw-w64-x86_64-SDL2
+
+      - name: Fetch QEMU and apply qemu-3dfx
+        run: |
+          wget -q "https://download.qemu.org/qemu-${QEMU_VERSION}.tar.xz"
+          tar xf "qemu-${QEMU_VERSION}.tar.xz"
+          cd "qemu-${QEMU_VERSION}"
+          rsync -r ../qemu-0/hw/3dfx ../qemu-1/hw/mesa ./hw/
+          patch -p0 -i "../${QEMU_PATCH}"
+          bash ../scripts/sign_commit
+
+      - name: Configure and build
+        run: |
+          mkdir build && cd build
+          "../qemu-${QEMU_VERSION}/configure" \
+            --target-list=i386-softmmu,x86_64-softmmu \
+            --enable-sdl --disable-docs
+          make -j"$(nproc)"
+
+      - name: Package with runtime DLLs
+        run: |
+          D=qemu-3dfx-windows-x86_64
+          mkdir -p "$D"
+          cp build/qemu-system-i386.exe build/qemu-system-x86_64.exe build/qemu-img.exe "$D/"
+          mkdir -p "$D/share"
+          cp -r build/pc-bios "$D/share/qemu"
+          # bundle every mingw64 DLL the executables need
+          for exe in "$D"/*.exe; do
+            ldd "$exe" | awk '/\/mingw64\// {print $3}'
+          done | sort -u | xargs -I{} cp {} "$D/"
+          zip -r "$D.zip" "$D"
+          ls -lh "$D.zip"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: qemu-windows
+          path: qemu-3dfx-windows-x86_64.zip
+          if-no-files-found: error
+
+  # ---------------------------------------------------------------------------
+  # Attach everything to a GitHub release when a v* tag is pushed
+  # ---------------------------------------------------------------------------
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [wrappers, qemu-windows]
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: out
+          merge-multiple: true
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: out/*
