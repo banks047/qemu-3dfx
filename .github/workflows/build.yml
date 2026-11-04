@@ -212,6 +212,7 @@ jobs:
             "qemu-${QEMU_VERSION}"/python/wheels/*.whl
           mkdir build && cd build
           "../qemu-${QEMU_VERSION}/configure" \
+            --prefix=C:/qemu \
             --target-list=i386-softmmu,x86_64-softmmu \
             --enable-sdl --disable-docs
           make -j"$(nproc)"
