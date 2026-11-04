@@ -141,18 +141,18 @@ jobs:
           sys.exit(1 if bad else 0)
           PY
 
-      - name: Package win98 / winxp / dos
+      - name: Package win9x / winxp / dos
         run: |
           G=wrappers/3dfx/build
           M=wrappers/mesa/build
-          mkdir -p dist/win98 dist/winxp dist/dos
-          for d in win98 winxp; do
+          mkdir -p dist/win9x dist/winxp dist/dos
+          for d in win9x winxp; do
             cp $G/glide.dll $G/glide2x.dll $G/glide3x.dll $M/opengl32.dll dist/$d/
           done
-          cp $G/fxmemmap.vxd $G/glide2x.ovl dist/win98/
+          cp $G/fxmemmap.vxd $G/glide2x.ovl dist/win9x/
           cp $G/fxptl.sys $G/instdrv.exe dist/winxp/
           cp $G/glide2x.ovl $G/glide2x.dxe $G/glide3x.dxe $G/libfxgl2.a $G/libfxgl3.a dist/dos/
-          for d in win98 winxp dos; do
+          for d in win9x winxp dos; do
             (cd dist/$d && zip -r ../qemu-3dfx-guest-$d.zip .)
           done
 
