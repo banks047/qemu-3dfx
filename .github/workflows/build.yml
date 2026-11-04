@@ -181,7 +181,7 @@ jobs:
           update: true
           cache: true
           install: >-
-            base-devel git rsync patch wget xz tar
+            base-devel git rsync patch wget xz tar zip
             mingw-w64-x86_64-toolchain
             mingw-w64-x86_64-ninja
             mingw-w64-x86_64-ccache
