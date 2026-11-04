@@ -215,15 +215,19 @@ jobs:
             --prefix=C:/qemu \
             --target-list=i386-softmmu,x86_64-softmmu \
             --enable-sdl --disable-docs
-          make -j"$(nproc)"
+          # Only the shipped binaries: plain `make` also links unit tests, one of which
+          # (test-vmstate) fails to link on MinGW
+          make -j"$(nproc)" qemu-system-i386.exe qemu-system-x86_64.exe qemu-img.exe
 
       - name: Package with runtime DLLs
         run: |
           D=qemu-3dfx-windows-x86_64
           mkdir -p "$D"
           cp build/qemu-system-i386.exe build/qemu-system-x86_64.exe build/qemu-img.exe "$D/"
-          mkdir -p "$D/share"
-          cp -r build/pc-bios "$D/share/qemu"
+          mkdir -p "$D/share/qemu"
+          cp -r "qemu-${QEMU_VERSION}"/pc-bios/. "$D/share/qemu/"
+          rm -f "$D"/share/qemu/meson.build "$D"/share/qemu/*.c "$D"/share/qemu/*.S \
+                "$D"/share/qemu/Makefile "$D"/share/qemu/README
           # bundle every mingw64 DLL the executables need
           for exe in "$D"/*.exe; do
             ldd "$exe" | awk '/\/mingw64\// {print $3}'
