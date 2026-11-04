@@ -206,6 +206,10 @@ jobs:
 
       - name: Configure and build
         run: |
+          # QEMU's own wheel installer builds a file://D:/... URL that pip rejects on Windows;
+          # install the bundled wheels ourselves so configure finds meson/pycotap already present
+          python -m pip install --break-system-packages --no-index \
+            "qemu-${QEMU_VERSION}"/python/wheels/*.whl
           mkdir build && cd build
           "../qemu-${QEMU_VERSION}/configure" \
             --target-list=i386-softmmu,x86_64-softmmu \
