@@ -222,14 +222,10 @@ jobs:
           python -m pip install --break-system-packages --no-index \
             "qemu-${QEMU_VERSION}"/python/wheels/*.whl
           export CCACHE_DIR="$PWD/.ccache" CCACHE_MAXSIZE=600M
-          # masquerade ccache as the compiler so every compile goes through it
-          mkdir -p "$PWD/.ccbin"
-          for c in gcc cc; do cp "$(command -v ccache)" "$PWD/.ccbin/$c.exe"; done
-          export PATH="$PWD/.ccbin:$PATH"
-          command -v gcc
           mkdir build && cd build
           "../qemu-${QEMU_VERSION}/configure" \
             --prefix=C:/qemu \
+            --cc="ccache gcc" \
             --target-list=i386-softmmu,x86_64-softmmu \
             --enable-sdl --disable-docs
           # Only the shipped binaries: plain `make` also links unit tests, one of which
