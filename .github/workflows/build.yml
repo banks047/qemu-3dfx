@@ -203,6 +203,9 @@ jobs:
       - uses: msys2/setup-msys2@v2
         with:
           msystem: MINGW64
+          # MINGW64 is deprecated upstream; we stay on it because the packaging step and
+          # the QEMU DLL set are tested against /mingw64. Revisit when moving to UCRT64.
+          suppress-deprecation-warnings: msystem-mingw64
           update: true
           cache: true
           install: >-
