@@ -20,12 +20,12 @@ jobs:
   wrappers:
     runs-on: ubuntu-22.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           fetch-depth: 0 # Makefiles stamp `git rev-parse --short HEAD`
 
       - name: Cache apt packages
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: ~/apt-archives
           key: apt-mingw-v1-${{ runner.os }}
@@ -49,7 +49,7 @@ jobs:
 
       - name: Cache DOS toolchains
         id: dostools
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: |
             ~/djgpp
@@ -181,7 +181,7 @@ jobs:
             (cd dist/$d && zip -r ../qemu-3dfx-guest-$d.zip .)
           done
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v6
         with:
           name: guest-wrappers
           path: dist/*.zip
@@ -196,7 +196,7 @@ jobs:
       run:
         shell: msys2 {0}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           fetch-depth: 0
 
@@ -221,7 +221,7 @@ jobs:
 
       - name: Restore ccache
         id: ccache
-        uses: actions/cache/restore@v4
+        uses: actions/cache/restore@v5
         with:
           path: .ccache
           key: ccache-qemu-${{ env.QEMU_VERSION }}-${{ github.run_id }}
@@ -229,7 +229,7 @@ jobs:
             ccache-qemu-${{ env.QEMU_VERSION }}-
 
       - name: Cache QEMU source tarball
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: qemu-${{ env.QEMU_VERSION }}.tar.xz
           key: qemu-src-${{ env.QEMU_VERSION }}
@@ -267,7 +267,7 @@ jobs:
 
       - name: Save ccache
         if: always()
-        uses: actions/cache/save@v4
+        uses: actions/cache/save@v5
         with:
           path: .ccache
           key: ccache-qemu-${{ env.QEMU_VERSION }}-${{ github.run_id }}
@@ -288,7 +288,7 @@ jobs:
           zip -r "$D.zip" "$D"
           ls -lh "$D.zip"
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v6
         with:
           name: qemu-windows
           path: qemu-3dfx-windows-x86_64.zip
@@ -304,7 +304,7 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v7
         with:
           path: out
           merge-multiple: true
