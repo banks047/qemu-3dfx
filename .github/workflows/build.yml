@@ -179,10 +179,12 @@ jobs:
         with:
           msystem: MINGW64
           update: true
+          cache: true
           install: >-
             base-devel git rsync patch wget xz tar
             mingw-w64-x86_64-toolchain
             mingw-w64-x86_64-ninja
+            mingw-w64-x86_64-ccache
             mingw-w64-x86_64-python
             mingw-w64-x86_64-python-distlib
             mingw-w64-x86_64-python-pip
@@ -191,6 +193,15 @@ jobs:
             mingw-w64-x86_64-glib2
             mingw-w64-x86_64-pixman
             mingw-w64-x86_64-SDL2
+
+      - name: Restore ccache
+        id: ccache
+        uses: actions/cache/restore@v4
+        with:
+          path: .ccache
+          key: ccache-qemu-${{ env.QEMU_VERSION }}-${{ github.run_id }}
+          restore-keys: |
+            ccache-qemu-${{ env.QEMU_VERSION }}-
 
       - name: Fetch QEMU and apply qemu-3dfx
         run: |
@@ -210,6 +221,12 @@ jobs:
           # install the bundled wheels ourselves so configure finds meson/pycotap already present
           python -m pip install --break-system-packages --no-index \
             "qemu-${QEMU_VERSION}"/python/wheels/*.whl
+          export CCACHE_DIR="$PWD/.ccache" CCACHE_MAXSIZE=600M
+          # masquerade ccache as the compiler so every compile goes through it
+          mkdir -p "$PWD/.ccbin"
+          for c in gcc cc; do cp "$(command -v ccache)" "$PWD/.ccbin/$c.exe"; done
+          export PATH="$PWD/.ccbin:$PATH"
+          command -v gcc
           mkdir build && cd build
           "../qemu-${QEMU_VERSION}/configure" \
             --prefix=C:/qemu \
@@ -217,7 +234,16 @@ jobs:
             --enable-sdl --disable-docs
           # Only the shipped binaries: plain `make` also links unit tests, one of which
           # (test-vmstate) fails to link on MinGW
+          ccache -z
           make -j"$(nproc)" qemu-system-i386.exe qemu-system-x86_64.exe qemu-img.exe
+          ccache -s
+
+      - name: Save ccache
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: .ccache
+          key: ccache-qemu-${{ env.QEMU_VERSION }}-${{ github.run_id }}
 
       - name: Package with runtime DLLs
         run: |
