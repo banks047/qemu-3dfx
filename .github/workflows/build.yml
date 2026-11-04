@@ -185,6 +185,7 @@ jobs:
             mingw-w64-x86_64-ninja
             mingw-w64-x86_64-python
             mingw-w64-x86_64-python-distlib
+            mingw-w64-x86_64-python-pip
             mingw-w64-x86_64-python-setuptools
             mingw-w64-x86_64-pkgconf
             mingw-w64-x86_64-glib2
