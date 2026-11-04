@@ -24,12 +24,22 @@ jobs:
         with:
           fetch-depth: 0 # Makefiles stamp `git rev-parse --short HEAD`
 
+      - name: Cache apt packages
+        uses: actions/cache@v4
+        with:
+          path: ~/apt-archives
+          key: apt-mingw-v1-${{ runner.os }}
+
       - name: Install cross toolchain
         run: |
+          # keep downloaded .debs in a user-owned dir so actions/cache can save them;
+          # packages are still installed normally (postinst scripts run)
+          mkdir -p "$HOME/apt-archives/partial"
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends \
+          sudo apt-get -o Dir::Cache::archives="$HOME/apt-archives" install -y --no-install-recommends \
             gcc-mingw-w64-i686 binutils-mingw-w64-i686 mingw-w64-tools \
             xxd perl make zip libfl2
+          sudo chown -R "$(id -u):$(id -g)" "$HOME/apt-archives" # so the cache step can read it
           # win32 thread model: avoids a libwinpthread/libgcc_s runtime dependency
           sudo update-alternatives --set i686-w64-mingw32-gcc /usr/bin/i686-w64-mingw32-gcc-win32
           # Makefiles call bare `objdump` on PE files; point it at the mingw one
@@ -37,12 +47,32 @@ jobs:
           ln -sf "$(command -v i686-w64-mingw32-objdump)" "$HOME/shim/objdump"
           echo "$HOME/shim" >> "$GITHUB_PATH"
 
-      - name: Install DOS toolchains (DJGPP + Open Watcom)
+      - name: Cache DOS toolchains
+        id: dostools
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/djgpp
+            ~/watcom
+          # Open Watcom "Current-build" is a rolling snapshot: this key pins whichever one
+          # was cached first. Bump the trailing number to pull a fresh snapshot.
+          key: dos-toolchains-djgpp3.4-gcc1220-watcom-snapshot-1
+
+      - name: Download DOS toolchains (DJGPP + Open Watcom)
+        if: steps.dostools.outputs.cache-hit != 'true'
         run: |
           # DJGPP cross compiler -> glide2x.dxe / glide3x.dxe
           curl -fsSL -o djgpp.tar.bz2 \
             https://github.com/andrewwutw/build-djgpp/releases/download/v3.4/djgpp-linux64-gcc1220.tar.bz2
           tar -C "$HOME" -xf djgpp.tar.bz2
+          # Open Watcom v2 -> glide2x.ovl
+          curl -fsSL -o watcom.tar.xz \
+            https://github.com/open-watcom/open-watcom-v2/releases/download/Current-build/ow-snapshot.tar.xz
+          mkdir -p "$HOME/watcom"
+          tar -C "$HOME/watcom" -xf watcom.tar.xz
+
+      - name: Set up DOS toolchain environment
+        run: |
           # The Makefile calls bare `dxe3gen`; the tarball only ships prefixed names
           D3=$(ls "$HOME"/djgpp/bin/*-dxe3gen 2>/dev/null | head -n1)
           [ -n "$D3" ] || D3=$(find "$HOME/djgpp" -name '*dxe3gen*' -type f | head -n1)
@@ -55,11 +85,6 @@ jobs:
           ls -l "$HOME/dxetools"
           echo "$HOME/dxetools" >> "$GITHUB_PATH"
           echo "$HOME/djgpp/bin" >> "$GITHUB_PATH"
-          # Open Watcom v2 -> glide2x.ovl
-          curl -fsSL -o watcom.tar.xz \
-            https://github.com/open-watcom/open-watcom-v2/releases/download/Current-build/ow-snapshot.tar.xz
-          mkdir -p "$HOME/watcom"
-          tar -C "$HOME/watcom" -xf watcom.tar.xz
           echo "WATCOM=$HOME/watcom" >> "$GITHUB_ENV"
           echo "INCLUDE=$HOME/watcom/h" >> "$GITHUB_ENV"
           echo "$HOME/watcom/binl64" >> "$GITHUB_PATH"
@@ -203,9 +228,15 @@ jobs:
           restore-keys: |
             ccache-qemu-${{ env.QEMU_VERSION }}-
 
+      - name: Cache QEMU source tarball
+        uses: actions/cache@v4
+        with:
+          path: qemu-${{ env.QEMU_VERSION }}.tar.xz
+          key: qemu-src-${{ env.QEMU_VERSION }}
+
       - name: Fetch QEMU and apply qemu-3dfx
         run: |
-          wget -q "https://download.qemu.org/qemu-${QEMU_VERSION}.tar.xz"
+          [ -s "qemu-${QEMU_VERSION}.tar.xz" ] || wget -q "https://download.qemu.org/qemu-${QEMU_VERSION}.tar.xz"
           # MSYS tar cannot create the symlinks under roms/ and tests/lcitool (unused by the
           # build) and exits non-zero; skip roms and verify the tree really extracted instead
           tar xf "qemu-${QEMU_VERSION}.tar.xz" --exclude="qemu-${QEMU_VERSION}/roms" || true
